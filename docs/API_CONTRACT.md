@@ -6,7 +6,6 @@ This document records the HTTP requests made by [`src/services/api.ts`](../src/s
 
 - `ApiService` uses `NEXT_PUBLIC_API_BASE_URL`, defaulting to `http://localhost:2333`.
 - `AgentService` uses `NEXT_PUBLIC_AGENT_API_URL`, also defaulting to `http://localhost:2333`. These clients are separate even when configured to the same host.
-- WebAuthn/passkeys require a secure context (`https://` or `localhost`/`127.0.0.1`), a browser that supports `PublicKeyCredential`, and backend endpoints that issue the registration/authentication challenge payloads. The frontend only consumes those backend-generated challenge objects and does not sign the challenge itself. Passkey routes below describe the client integration proposal; this repository does not verify that the backend currently implements them.
 - `ApiService` attaches `Authorization: Bearer <access-token>` when a token is present. Its explicit refresh call and the 401 interceptor send `POST /auth/refresh` with cookies (`withCredentials: true`).
 - Next.js rewrites `/horizon/:path*` to `${NEXT_PUBLIC_API_BASE_URL || 'http://localhost:2333'}/proxy/:path*`. `horizonFetch` calls the local `/horizon` path; keep the backend `/proxy/:path*` handler available. Stellar Horizon reads made through `horizonFetch` are in `src/store/slices/accountSlice.ts`, not these service endpoint lists.
 - `ApiResponse<T>` is the declared envelope for many methods:
