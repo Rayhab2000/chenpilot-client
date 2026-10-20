@@ -3,8 +3,8 @@ import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAppDispatch } from "@/store";
-import { register as registerUser } from "@/store/slices/authSlice";
-import { registerSchema } from "@/utils/validation";
+import { register as registerUser, setAuthSession } from "@/store/slices/authSlice";
+import { emailSchema, registerSchema } from "@/utils/validation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignIn";
@@ -13,11 +13,13 @@ import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import authService from "@/services/auth.service";
 
 interface RegisterFormData {
   email: string;
   password: string;
   name?: string;
+  terms?: boolean;
 }
 
 export function RegisterForm() {
@@ -29,11 +31,13 @@ export function RegisterForm() {
     register,
     handleSubmit,
     watch,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
   });
 
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
   const passwordValue = watch("password") ?? "";
 
   const onSubmit = async (data: RegisterFormData) => {
@@ -46,17 +50,41 @@ export function RegisterForm() {
       await dispatch(registerUser(cleanData)).unwrap();
       toast.success("Account created successfully! Welcome to ChenPilot!");
       router.push("/chat");
-    } catch (error: any) {
-      const backendMessage =
-        error?.message ||
-        error?.response?.data?.message ||
-        "Registration failed";
-      toast.error(String(backendMessage));
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Registration failed");
     }
   };
 
   const onInvalid = () => {
     toast.error("Please fix the errors in the form");
+  };
+
+  const handlePasskeyRegister = async () => {
+    try {
+      setIsPasskeyLoading(true);
+      const { email, name, terms } = getValues();
+      const validEmail = emailSchema.safeParse(email);
+      if (!validEmail.success) {
+        toast.error(validEmail.error.issues[0]?.message || "Enter a valid email address to create a passkey.");
+        return;
+      }
+      if (!terms) {
+        toast.error("Please accept the Terms of Service and Privacy Policy.");
+        return;
+      }
+
+      const session = await authService.registerWithPasskey({ email, name });
+      dispatch(setAuthSession({ user: session.user, token: session.token }));
+      toast.success("Passkey registration complete!");
+      router.push("/chat");
+    } catch (error: unknown) {
+      const message = error instanceof Error
+        ? error.message
+        : 'Passkey registration is unavailable for this browser or backend.';
+      toast.error(message);
+    } finally {
+      setIsPasskeyLoading(false);
+    }
   };
 
   return (
@@ -170,6 +198,7 @@ export function RegisterForm() {
           <input
             id="terms"
             name="terms"
+            {...register("terms")}
             type="checkbox"
             required
             aria-required="true"
@@ -229,7 +258,15 @@ export function RegisterForm() {
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 space-y-3">
+          <Button
+            type="button"
+            onClick={handlePasskeyRegister}
+            disabled={isPasskeyLoading || isSubmitting}
+            className="w-full px-10 py-4 text-base font-light rounded-full border border-white/10 bg-white/5 text-white hover:border-white/20 hover:bg-white/10 transition-all duration-500"
+          >
+            {isPasskeyLoading ? "Setting up passkey…" : "Create a Passkey"}
+          </Button>
           <GoogleSignInButton
             onSuccess={() => router.push("/chat")}
             onError={(error) => console.error("Google Sign-in error:", error)}

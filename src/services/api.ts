@@ -13,10 +13,7 @@ import {
   AgentQueryRequest,
   AgentQueryResponse,
   ApiResponse,
-  ChatMessage,
-  Conversation,
   PromptVersionRecord,
-  LiquidityPool,
   LiquidityStats,
   LiquidityRequest,
   StellarTransaction,
@@ -34,8 +31,6 @@ import {
   incrementRetryCount,
   retryLabel,
 } from '@/utils/retryUtils';
-
-import axios from 'axios';
 
 const FRIENDTEST_URL = 'https://friendbot.stellar.org';
 
@@ -76,7 +71,7 @@ export const requestAccountFunding = async (
           message: 'Account funded successfully via Stellar Testnet Friendbot fallback.',
           txHash: friendbotResponse.data.hash,
         };
-      } catch (friendbotError: unknown) {
+      } catch {
         throw new Error(
           `Funding failed: Backend service unavailable and Friendbot fallback failed. Required: ${requiredAmount} XLM, Current: ${currentBalance} XLM.`
         );

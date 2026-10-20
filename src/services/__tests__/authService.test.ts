@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import authService from '../auth.service';
 
 describe('AuthService', () => {
+  let navigatorCredentialsDescriptor: PropertyDescriptor | undefined;
+  let secureContextDescriptor: PropertyDescriptor | undefined;
+  let publicKeyCredentialDescriptor: PropertyDescriptor | undefined;
+
   beforeEach(() => {
     // Clear localStorage before each test
     if (typeof window !== 'undefined') {
@@ -13,6 +17,29 @@ describe('AuthService', () => {
     if (typeof window !== 'undefined') {
       localStorage.clear();
     }
+    vi.unstubAllGlobals();
+    if (typeof navigator !== 'undefined') {
+      if (navigatorCredentialsDescriptor) {
+        Object.defineProperty(navigator, 'credentials', navigatorCredentialsDescriptor);
+      } else {
+        delete (navigator as Navigator & { credentials?: CredentialsContainer }).credentials;
+      }
+    }
+    if (typeof window !== 'undefined') {
+      if (secureContextDescriptor) {
+        Object.defineProperty(window, 'isSecureContext', secureContextDescriptor);
+      } else {
+        delete (window as Window & { isSecureContext?: boolean }).isSecureContext;
+      }
+      if (publicKeyCredentialDescriptor) {
+        Object.defineProperty(window, 'PublicKeyCredential', publicKeyCredentialDescriptor);
+      } else {
+        delete (window as Window & { PublicKeyCredential?: typeof PublicKeyCredential }).PublicKeyCredential;
+      }
+    }
+    navigatorCredentialsDescriptor = undefined;
+    secureContextDescriptor = undefined;
+    publicKeyCredentialDescriptor = undefined;
   });
 
   describe('isAuthenticated', () => {
@@ -143,6 +170,210 @@ describe('AuthService', () => {
       await authService.logout();
 
       expect(sessionStorage.length).toBe(0);
+    });
+  });
+
+  describe('passkey support', () => {
+    it('detects passkey support when WebAuthn APIs are available', () => {
+      publicKeyCredentialDescriptor = Object.getOwnPropertyDescriptor(window, 'PublicKeyCredential');
+      Object.defineProperty(window, 'PublicKeyCredential', {
+        value: function PublicKeyCredential() {},
+        configurable: true,
+      });
+      navigatorCredentialsDescriptor = Object.getOwnPropertyDescriptor(navigator, 'credentials');
+      Object.defineProperty(window.navigator, 'credentials', {
+        value: {},
+        configurable: true,
+      });
+
+      expect(authService.isPasskeyBrowserSupported()).toBe(true);
+    });
+
+    it('throws a clear error when the passkey challenge endpoint rejects', async () => {
+      publicKeyCredentialDescriptor = Object.getOwnPropertyDescriptor(window, 'PublicKeyCredential');
+      Object.defineProperty(window, 'PublicKeyCredential', {
+        value: function PublicKeyCredential() {},
+        configurable: true,
+      });
+      navigatorCredentialsDescriptor = Object.getOwnPropertyDescriptor(navigator, 'credentials');
+      Object.defineProperty(navigator, 'credentials', {
+        value: {},
+        configurable: true,
+      });
+      secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+      Object.defineProperty(window, 'isSecureContext', {
+        value: true,
+        configurable: true,
+      });
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({ message: 'Passkey route is not registered on the backend.' }),
+      }));
+
+      await expect(authService.beginPasskeyRegistration({ email: 'test@example.com' })).rejects.toThrow(
+        'Passkey route is not registered on the backend.',
+      );
+    });
+
+    it('completes a passkey login ceremony and stores the session token', async () => {
+      publicKeyCredentialDescriptor = Object.getOwnPropertyDescriptor(window, 'PublicKeyCredential');
+      Object.defineProperty(window, 'PublicKeyCredential', {
+        value: function PublicKeyCredential() {},
+        configurable: true,
+      });
+      secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+      Object.defineProperty(window, 'isSecureContext', {
+        value: true,
+        configurable: true,
+      });
+      navigatorCredentialsDescriptor = Object.getOwnPropertyDescriptor(navigator, 'credentials');
+
+      const fakeCredential = {
+        id: 'credential-id',
+        rawId: new Uint8Array([1, 2, 3, 4]).buffer,
+        type: 'public-key',
+        response: {
+          clientDataJSON: new Uint8Array([10, 11, 12]).buffer,
+          authenticatorData: new Uint8Array([20, 21, 22]).buffer,
+          signature: new Uint8Array([30, 31, 32]).buffer,
+          userHandle: null,
+        },
+        getClientExtensionResults: () => ({}) as AuthenticationExtensionsClientOutputs,
+      };
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          get: vi.fn().mockResolvedValue(fakeCredential),
+        },
+        configurable: true,
+      });
+
+      vi.stubGlobal('fetch', vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            message: 'Challenge ready',
+            data: {
+              challenge: 'AQIDBA==',
+              rpId: 'localhost',
+              allowCredentials: [{ type: 'public-key', id: 'AQID' }],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            message: 'Signed in',
+            data: {
+              token: 'passkey-session-token',
+              user: {
+                id: 'u1',
+                email: 'test@example.com',
+                name: 'Test User',
+                address: 'G...',
+                publicKey: 'G...',
+                isDeployed: true,
+                isFunded: true,
+                tokenType: 'XLM',
+                authProvider: 'passkey',
+                isEmailVerified: true,
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+              },
+            },
+          }),
+        }));
+
+      const result = await authService.authenticateWithPasskey({ email: 'test@example.com' });
+
+      expect(result.token).toBe('passkey-session-token');
+      expect(localStorage.getItem('auth_token')).toBe('passkey-session-token');
+    });
+
+    it('creates a passkey from backend-issued registration options', async () => {
+      publicKeyCredentialDescriptor = Object.getOwnPropertyDescriptor(window, 'PublicKeyCredential');
+      Object.defineProperty(window, 'PublicKeyCredential', {
+        value: function PublicKeyCredential() {},
+        configurable: true,
+      });
+      secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+      Object.defineProperty(window, 'isSecureContext', {
+        value: true,
+        configurable: true,
+      });
+      navigatorCredentialsDescriptor = Object.getOwnPropertyDescriptor(navigator, 'credentials');
+      const fakeCredential = {
+        id: 'credential-id',
+        rawId: new Uint8Array([1, 2, 3, 4]).buffer,
+        type: 'public-key',
+        response: {
+          clientDataJSON: new Uint8Array([10, 11, 12]).buffer,
+          attestationObject: new Uint8Array([20, 21, 22]).buffer,
+        },
+        getClientExtensionResults: () => ({}),
+      };
+      const createCredential = vi.fn().mockResolvedValue(fakeCredential);
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: { create: createCredential },
+        configurable: true,
+      });
+
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            message: 'Challenge ready',
+            data: {
+              challenge: 'AQIDBA',
+              rpId: 'localhost',
+              rpName: 'ChenPilot',
+              user: { id: 'BQYH', name: 'test@example.com', displayName: 'Test User' },
+              pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            success: true,
+            message: 'Passkey registered',
+            data: {
+              token: 'passkey-registration-token',
+              user: {
+                id: 'u1',
+                email: 'test@example.com',
+                name: 'Test User',
+                address: 'G...',
+                publicKey: 'G...',
+                isDeployed: true,
+                isFunded: true,
+                tokenType: 'XLM',
+                authProvider: 'passkey',
+                isEmailVerified: true,
+                createdAt: '2026-01-01T00:00:00Z',
+                updatedAt: '2026-01-01T00:00:00Z',
+              },
+            },
+          }),
+        });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await authService.registerWithPasskey({
+        email: 'test@example.com',
+        name: 'Test User',
+      });
+
+      expect(createCredential).toHaveBeenCalledOnce();
+      const options = createCredential.mock.calls[0][0].publicKey;
+      expect(Array.from(new Uint8Array(options.challenge))).toEqual([1, 2, 3, 4]);
+      expect(Array.from(new Uint8Array(options.user.id))).toEqual([5, 6, 7]);
+      expect(result.token).toBe('passkey-registration-token');
+      expect(localStorage.getItem('auth_token')).toBe('passkey-registration-token');
     });
   });
 });

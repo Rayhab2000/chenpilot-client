@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema } from "@/utils/validation";
 import { useAppDispatch, useAppSelector } from "@/store";
-import { login } from "@/store/slices/authSlice";
+import { login, setAuthSession } from "@/store/slices/authSlice";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignIn";
@@ -12,6 +12,7 @@ import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import authService from "@/services/auth.service";
 
 interface LoginFormData {
   email: string;
@@ -27,23 +28,43 @@ export default function LoginForm() {
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
 
   const onSubmit = async (data: LoginFormData) => {
     try {
       await dispatch(login(data)).unwrap();
       toast.success("Successfully logged in!");
       router.push("/chat");
-    } catch (error: any) {
-      toast.error(error?.message || "Login failed");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Login failed");
     }
   };
 
   const onInvalid = () => {
     toast.error("Please fix the errors in the form");
+  };
+
+  const handlePasskeySignIn = async () => {
+    try {
+      setIsPasskeyLoading(true);
+      const email = getValues('email');
+      const session = await authService.authenticateWithPasskey(email ? { email } : {});
+      dispatch(setAuthSession({ user: session.user, token: session.token }));
+      toast.success("Signed in with passkey!");
+      router.push("/chat");
+    } catch (error: unknown) {
+      const message = error instanceof Error
+        ? error.message
+        : 'Passkey sign-in is unavailable for this browser or backend.';
+      toast.error(message);
+    } finally {
+      setIsPasskeyLoading(false);
+    }
   };
 
   return (
@@ -173,7 +194,15 @@ export default function LoginForm() {
           </div>
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 space-y-3">
+          <Button
+            type="button"
+            onClick={handlePasskeySignIn}
+            disabled={isPasskeyLoading || isLoading}
+            className="w-full px-10 py-4 text-base font-light rounded-full border border-white/10 bg-white/5 text-white hover:border-white/20 hover:bg-white/10 transition-all duration-500"
+          >
+            {isPasskeyLoading ? 'Checking passkey…' : 'Use a Passkey'}
+          </Button>
           <GoogleSignInButton
             onSuccess={() => router.push("/chat")}
             onError={(error) => console.error(error)}
@@ -184,7 +213,7 @@ export default function LoginForm() {
 
       <div className="mt-8 text-center">
         <p className="text-sm text-white/40 font-light">
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link
             href="/auth/register"
             className="text-white hover:text-white/80 transition-colors"
