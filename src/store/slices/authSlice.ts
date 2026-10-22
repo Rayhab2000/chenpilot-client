@@ -183,6 +183,17 @@ const authSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    setAuthSession: (state, action: PayloadAction<{ user: User; token: string }>) => {
+      state.user = action.payload.user;
+      state.token = action.payload.token;
+      state.isAuthenticated = true;
+      state.isLoading = false;
+      state.error = null;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("auth_token", action.payload.token);
+        localStorage.setItem("user_data", JSON.stringify(action.payload.user));
+      }
+    },
     setToken: (state, action: PayloadAction<string>) => {
       state.token = action.payload;
       state.isAuthenticated = true;
@@ -412,6 +423,7 @@ const authSlice = createSlice({
 
 export const {
   clearError,
+  setAuthSession,
   setToken,
   clearAuth,
   initializeAuth,

@@ -8,7 +8,7 @@ export interface User {
   isDeployed: boolean;
   isFunded: boolean;
   tokenType: "XLM";
-  authProvider: "email" | "google";
+  authProvider: "email" | "google" | "passkey";
   isEmailVerified: boolean;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +79,67 @@ export interface LoginResponse {
     token: string;
     stellarAccount: StellarAccountInfo;
     starknetAccount: StellarAccountInfo; // Alias for backward compatibility
+  };
+}
+
+export interface PasskeyChallengeRequest {
+  email?: string;
+  name?: string;
+  displayName?: string;
+}
+
+export interface PasskeyChallengeResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    challenge: string;
+    rpId?: string;
+    rpName?: string;
+    user?: {
+      id: string;
+      name: string;
+      displayName: string;
+    };
+    pubKeyCredParams?: PublicKeyCredentialParameters[];
+    excludeCredentials?: Array<{
+      type: 'public-key';
+      id: string;
+      transports?: AuthenticatorTransport[];
+    }>;
+    allowCredentials?: Array<{
+      type: 'public-key';
+      id: string;
+      transports?: AuthenticatorTransport[];
+    }>;
+    timeout?: number;
+    userVerification?: 'required' | 'preferred' | 'discouraged';
+    attestation?: 'none' | 'indirect' | 'direct';
+    authenticatorSelection?: AuthenticatorSelectionCriteria;
+  };
+}
+
+export interface PasskeyCredentialRequest {
+  id: string;
+  rawId: string;
+  type: 'public-key';
+  clientExtensionResults?: Record<string, unknown>;
+  response: {
+    clientDataJSON: string;
+    attestationObject?: string;
+    authenticatorData?: string;
+    signature?: string;
+    userHandle?: string;
+    transports?: string[];
+  };
+}
+
+export interface PasskeySessionResult {
+  success: boolean;
+  message: string;
+  data: {
+    user: User;
+    token: string;
+    authProvider?: 'passkey';
   };
 }
 
